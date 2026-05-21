@@ -2,5 +2,6 @@ from .base import *
 
 DEBUG = False
 MOCK_LOGIN = False
+ENABLE_PROXY = False
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS")
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS")

@@ -15,10 +15,24 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
+from django.conf import settings
+from django.conf.urls.static import static
 from django.urls import re_path, path
-from . import views
+from .shared import views as shared_views
 
 urlpatterns = [
-    path("login", views.login_view, name="login"),
-    re_path(r"^(?P<path>.*)$", views.proxy_view, name="proxy"),
+    path("photos/upload", shared_views.photo_upload_view, name="photo-upload"),
 ]
+
+if settings.DEBUG and hasattr(settings, "MEDIA_URL"):
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# Enable the proxy if needed
+# Extended description in /dev/views.py
+if getattr(settings, "ENABLE_PROXY", False):
+    from .dev import views as dev_views
+
+    urlpatterns.extend([
+        path("auth/login", dev_views.login_view, name="login"),
+        re_path(r"^(?P<path>.*)$", dev_views.proxy_view, name="proxy"),
+    ])

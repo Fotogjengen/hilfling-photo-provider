@@ -1,7 +1,6 @@
 import io
 import re
 import unicodedata
-import uuid
 from pathlib import Path
 
 import requests
@@ -18,8 +17,8 @@ def _slugify(name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "_", ascii_name).strip("_")
 
 
-def _build_filename(album: str, ext: str) -> str:
-    return f"{_slugify(album).lower()}_{uuid.uuid4().hex}.{ext}"
+def _build_filename(album: str, page_number: int, image_number: int, ext: str) -> str:
+    return f"{_slugify(album).lower()}{page_number}{image_number}.{ext}"
 
 
 def _relative_path(security_level: str, quality: str, album: str, filename: str) -> str:
@@ -83,12 +82,7 @@ def photo_upload_view(request: HttpRequest):
     if validate_resp.status_code != 200:
         return JsonResponse({"error": "Backend validation request failed"}, status=502)
 
-    validate_data = validate_resp.json()
-    if not validate_data.get("valid"):
-        return JsonResponse(
-            {"error": "Upload parameters invalid", "errors": validate_data.get("errors", [])},
-            status=400,
-        )
+    reservation = validate_resp.json()
 
     # Step 3: Save the image in three sizes under the correct directory structure:
     #   <security_level_lower>/<quality>/<ALBUM_UPPER>/<filename>
@@ -97,7 +91,7 @@ def photo_upload_view(request: HttpRequest):
     security_level = data["security_level"]
     ext = image_file.name.rsplit(".", 1)[-1].lower() if "." in image_file.name else "jpg"
 
-    filename = _build_filename(album, ext)
+    filename = _build_filename(album, reservation["pageNumber"], reservation["imageNumber"], ext)
     storage_root = Path(settings.IMAGE_STORAGE_PATH)
 
     prod_rel = _relative_path(security_level, "prod", album, filename)

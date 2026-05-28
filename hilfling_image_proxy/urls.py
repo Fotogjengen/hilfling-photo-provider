@@ -22,6 +22,7 @@ from .shared import views as shared_views
 
 urlpatterns = [
     path("photos/upload", shared_views.photo_upload_view, name="photo-upload"),
+    path("photos/<str:photo_id>", shared_views.photo_delete_view, name="photo-delete"),
 ]
 
 if settings.DEBUG and hasattr(settings, "MEDIA_URL"):

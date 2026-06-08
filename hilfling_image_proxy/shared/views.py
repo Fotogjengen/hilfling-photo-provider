@@ -174,6 +174,7 @@ def photo_delete_view(request: HttpRequest, photo_id: str):
             method=request.method,
             url=f"{backend_url}/photos/{photo_id}",
             headers=auth_headers,
+            params=request.GET,
             timeout=10,
         )
         try:
@@ -184,6 +185,7 @@ def photo_delete_view(request: HttpRequest, photo_id: str):
     backend_resp = requests.delete(
         f"{backend_url}/photos/{photo_id}",
         headers=auth_headers,
+        params=request.GET,
         timeout=10,
     )
 

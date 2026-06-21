@@ -38,13 +38,11 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
-    'corsheaders',
     'django.contrib.staticfiles',
     'django.contrib.contenttypes',
 ]
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.middleware.common.CommonMiddleware',
 ]
@@ -81,13 +79,7 @@ STATIC_URL = 'static/'
 
 PROXY_TARGET_URL = env("PROXY_TARGET_URL")
 IMAGE_STORAGE_PATH = env("IMAGE_STORAGE_PATH", default="media")
-IMAGE_BASE_URL = env("IMAGE_BASE_URL", default="http://localhost:8001/media")
+IMAGE_BASE_URL = env("IMAGE_BASE_URL", default="/media")
 
-# Keep endpoint surface identical across environments while toggling behavior.
-ENABLE_PROXY = False
-
-from corsheaders.defaults import default_headers
-
-CORS_ALLOW_HEADERS = list(default_headers) + [
-    "X-hilfling-token",
-]
+# Backend JWKS endpoint
+JWKS_URL = env("JWKS_URL", default=f"{PROXY_TARGET_URL}/.well-known/jwks.json")

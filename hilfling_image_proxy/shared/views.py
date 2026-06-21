@@ -5,8 +5,12 @@ from pathlib import Path
 
 import requests
 from django.conf import settings
-from django.http import HttpRequest, JsonResponse
+from django.core.exceptions import SuspiciousFileOperation
+from django.http import FileResponse, HttpRequest, JsonResponse
+from django.utils._os import safe_join
 from PIL import Image, ImageOps
+
+from hilfling_image_proxy.utils.auth import InvalidToken, can_access
 
 from .forms import PhotoUploadForm
 
@@ -63,11 +67,12 @@ def photo_upload_view(request: HttpRequest):
     data = form.cleaned_data
     backend_url = settings.PROXY_TARGET_URL
     auth_headers = {}
-    token = request.META.get("HTTP_X_HILFLING_TOKEN")
+    # Forward the JWT from the cookie to the backend as a header
+    token = request.COOKIES.get("fgToken")
     if token:
         auth_headers["X-hilfling-token"] = token
 
-    # Step 2: Reserve a slot in the backend before touching the filesystem.
+    # Reserve an image slot in the backend before writing to disk
     reserve_payload = {
         "motiveId": str(data["motive_id"]),
         "dateTaken": data["date"].isoformat(),
@@ -93,7 +98,7 @@ def photo_upload_view(request: HttpRequest):
 
     reservation = reserve_resp.json()
 
-    # Step 3: Save the image in three sizes under the correct directory structure:
+    # save the image in three sizes under the correct directory structure:
     #   <security_level_lower>/<quality>/<ALBUM_UPPER>/<filename>
     image_file = data["media"]
     album = reservation["album"]["name"]
@@ -125,7 +130,7 @@ def photo_upload_view(request: HttpRequest):
     web_url = f"{image_base_url}/{web_rel}"
     thumb_url = f"{image_base_url}/{thumb_rel}"
 
-    # Step 4: Finalize the DB entry in the backend.
+    # Finalize the DB entry in the backend.
     finalize_payload = {
         "goodPicture": bool(data.get("good_picture", False)),
         "analog": bool(data.get("analog", False)),
@@ -165,7 +170,9 @@ def photo_upload_view(request: HttpRequest):
 def photo_delete_view(request: HttpRequest, photo_id: str):
     backend_url = settings.PROXY_TARGET_URL
     auth_headers = {}
-    token = request.META.get("HTTP_X_HILFLING_TOKEN")
+
+    # Forward the JWT from the cookie to the backend as a header
+    token = request.COOKIES.get("fgToken")
     if token:
         auth_headers["X-hilfling-token"] = token
 
@@ -208,3 +215,33 @@ def photo_delete_view(request: HttpRequest, photo_id: str):
             (storage_root / rel).unlink(missing_ok=True)
 
     return JsonResponse(photo, status=backend_resp.status_code, safe=False)
+
+
+def serve_image_view(request: HttpRequest, path: str):
+    """Serve a stored image, gated by the requester's token security level.
+
+    Images live under <storage>/<security_level>/<quality>/<ALBUM>/<file>, so the
+    first path segment is the security level. Public images (ALLE) are served to
+    anyone; FG/HUSFOLK images require a token whose securityLevel permits them.
+    """
+    if request.method not in ("GET", "HEAD"):
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    storage_root = settings.IMAGE_STORAGE_PATH
+    try:
+        abs_path = Path(safe_join(storage_root, path))
+    except (ValueError, SuspiciousFileOperation):
+        return JsonResponse({"error": "Not found"}, status=404)
+
+    required_level = path.strip("/").split("/", 1)[0].upper()
+    try:
+        allowed = can_access(request, required_level)
+    except InvalidToken:
+        return JsonResponse({"error": "Invalid token"}, status=401)
+    if not allowed:
+        return JsonResponse({"error": "Forbidden"}, status=403)
+
+    if not abs_path.is_file():
+        return JsonResponse({"error": "Not found"}, status=404)
+
+    return FileResponse(abs_path.open("rb"))

@@ -1,4 +1,5 @@
 Django==6.0.4
+ExifRead==3.5.1
 django-environ==0.13.0
 Pillow==12.2.0
 PyJWT[crypto]==2.10.1

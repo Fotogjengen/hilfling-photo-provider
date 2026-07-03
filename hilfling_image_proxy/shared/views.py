@@ -3,12 +3,13 @@ import re
 import unicodedata
 from pathlib import Path
 
+import exifread
 import requests
 from django.conf import settings
 from django.core.exceptions import SuspiciousFileOperation
 from django.http import FileResponse, HttpRequest, JsonResponse
 from django.utils._os import safe_join
-from PIL import Image, ImageOps
+from PIL import ExifTags, Image, ImageOps
 
 from hilfling_image_proxy.utils.auth import InvalidToken, can_access
 
@@ -245,3 +246,68 @@ def serve_image_view(request: HttpRequest, path: str):
         return JsonResponse({"error": "Not found"}, status=404)
 
     return FileResponse(abs_path.open("rb"))
+
+
+def _exif_text(tags, key):
+    tag = tags.get(key)
+    return str(tag) if tag else None
+
+
+def _exif_number(tags, key):
+    tag = tags.get(key)
+    return float(tag.values[0]) if tag and tag.values else None
+
+
+def photo_metadata_view(request: HttpRequest, path: str):
+    """Return EXIF metadata for a stored image, gated like serve_image_view."""
+    if request.method != "GET":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    storage_root = settings.IMAGE_STORAGE_PATH
+    try:
+        abs_path = Path(safe_join(storage_root, path))
+    except (ValueError, SuspiciousFileOperation):
+        return JsonResponse({"error": "Not found"}, status=404)
+
+    required_level = path.strip("/").split("/", 1)[0].upper()
+    try:
+        allowed = can_access(request, required_level)
+    except InvalidToken:
+        return JsonResponse({"error": "Invalid token"}, status=401)
+    if not allowed:
+        return JsonResponse({"error": "Forbidden"}, status=403)
+
+    if not abs_path.is_file():
+        return JsonResponse({"error": "Not found"}, status=404)
+
+    try:
+        with abs_path.open("rb") as f:
+            tags = exifread.process_file(f, details=False)
+        with Image.open(abs_path) as img:
+            width, height = img.size
+            orientation = img.getexif().get(ExifTags.Base.Orientation, 1)
+    except Exception:
+        return JsonResponse({"error": "Not an image"}, status=422)
+
+    # Orientation 5-8 means the image is stored rotated 90°
+    if orientation in (5, 6, 7, 8):
+        width, height = height, width
+
+    iso = _exif_number(tags, "EXIF ISOSpeedRatings")
+
+    metadata = {
+        "model": _exif_text(tags, "Image Model"),
+        "lensModel": _exif_text(tags, "EXIF LensModel"),
+        "iso": int(iso) if iso is not None else None,
+        "fNumber": _exif_number(tags, "EXIF FNumber"),
+        "exposureTime": _exif_number(tags, "EXIF ExposureTime"),
+        "focalLength": _exif_number(tags, "EXIF FocalLength"),
+        "exposureCompensation": _exif_number(tags, "EXIF ExposureBiasValue"),
+        "flash": _exif_text(tags, "EXIF Flash"),
+        "imageWidth": width,
+        "imageHeight": height,
+    }
+
+    response = JsonResponse(metadata)
+    response["Cache-Control"] = "private, max-age=86400"
+    return response

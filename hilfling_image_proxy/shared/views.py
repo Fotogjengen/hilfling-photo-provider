@@ -306,6 +306,7 @@ def photo_metadata_view(request: HttpRequest, path: str):
         "flash": _exif_text(tags, "EXIF Flash"),
         "imageWidth": width,
         "imageHeight": height,
+        "fileSize": abs_path.stat().st_size,
     }
 
     response = JsonResponse(metadata)

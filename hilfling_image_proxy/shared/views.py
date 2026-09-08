@@ -1,4 +1,6 @@
 import io
+import json
+import os
 import re
 import unicodedata
 from pathlib import Path
@@ -312,3 +314,138 @@ def photo_metadata_view(request: HttpRequest, path: str):
     response = JsonResponse(metadata)
     response["Cache-Control"] = "private, max-age=86400"
     return response
+
+
+def _forward_backend_json(resp):
+    """Re-serialize a backend requests.Response as a Django JsonResponse."""
+    try:
+        body = resp.json()
+    except Exception:
+        return JsonResponse({"error": resp.text}, status=resp.status_code)
+    return JsonResponse(body, status=resp.status_code, safe=False)
+
+
+def photo_move_view(request: HttpRequest, photo_id: str):
+    """Move a photo to a different motive (and, when needed, a different album).
+
+    Orchestrates a two-phase backend flow mirroring the upload path:
+      1. POST /photos/{id}/move/reserve  -> learns whether files must move and,
+         if so, the destination album/slot/security level plus the current URLs.
+      2. When files must move, rename the prod/web/thumb files on disk from the
+         old paths (derived from the current URLs) to the new paths (derived
+         from the target album/slot/security level).
+      3. POST /photos/{id}/move/finalize -> commits the motive/slot/URL/security
+         level change in the DB. On failure the file renames are rolled back.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    try:
+        body = json.loads(request.body or b"{}")
+    except (ValueError, json.JSONDecodeError):
+        return JsonResponse({"error": "Invalid JSON body"}, status=400)
+    target_motive_id = body.get("targetMotiveId")
+    if not target_motive_id:
+        return JsonResponse({"error": "targetMotiveId is required"}, status=400)
+
+    backend_url = settings.PROXY_TARGET_URL
+    auth_headers = {}
+    token = request.COOKIES.get("fgToken")
+    if token:
+        auth_headers["X-hilfling-token"] = token
+
+    reserve_resp = requests.post(
+        f"{backend_url}/photos/{photo_id}/move/reserve",
+        json={"targetMotiveId": target_motive_id},
+        headers=auth_headers,
+        timeout=10,
+    )
+    if reserve_resp.status_code != 200:
+        return _forward_backend_json(reserve_resp)
+
+    reservation = reserve_resp.json()
+    page_number = reservation["pageNumber"]
+    image_number = reservation["imageNumber"]
+    current_prod = reservation.get("currentImageProd")
+    current_web = reservation.get("currentImageWeb")
+    current_thumb = reservation.get("currentImageThumb")
+
+    # No file relocation needed: same album and same security level. Just
+    # finalise with the unchanged slot and URLs.
+    if not reservation.get("fileMoveRequired"):
+        finalize_payload = {
+            "targetMotiveId": target_motive_id,
+            "pageNumber": page_number,
+            "imageNumber": image_number,
+            "imageProd": current_prod,
+            "imageWeb": current_web,
+            "imageThumb": current_thumb,
+        }
+        finalize_resp = requests.post(
+            f"{backend_url}/photos/{photo_id}/move/finalize",
+            json=finalize_payload,
+            headers=auth_headers,
+            timeout=10,
+        )
+        return _forward_backend_json(finalize_resp)
+
+    album = reservation["albumName"]
+    security_level = reservation["securityLevel"]
+    storage_root = Path(settings.IMAGE_STORAGE_PATH)
+    image_base_url = settings.IMAGE_BASE_URL.rstrip("/")
+
+    old_urls = {"prod": current_prod, "web": current_web, "thumb": current_thumb}
+
+    ext = "jpg"
+    for u in (current_thumb, current_prod):
+        fname = (u or "").rsplit("/", 1)[-1]
+        if "." in fname:
+            ext = fname.rsplit(".", 1)[-1].lower()
+            break
+
+    filename = _build_filename(album, page_number, image_number, ext)
+
+    moved = []  # list of (new_abs, old_abs) for rollback
+    try:
+        for quality, url in old_urls.items():
+            if not url or not url.startswith(image_base_url):
+                continue
+            old_rel = url[len(image_base_url):].lstrip("/")
+            old_abs = storage_root / old_rel
+            if not old_abs.is_file():
+                continue
+            new_rel = _relative_path(security_level, quality, album, filename)
+            new_abs = storage_root / new_rel
+            new_abs.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(old_abs, new_abs)
+            moved.append((new_abs, old_abs))
+    except OSError as exc:
+        for new_abs, old_abs in moved:
+            try:
+                os.replace(new_abs, old_abs)
+            except OSError:
+                pass
+        return JsonResponse({"error": f"Failed to move image files: {exc}"}, status=500)
+
+    finalize_payload = {
+        "targetMotiveId": target_motive_id,
+        "pageNumber": page_number,
+        "imageNumber": image_number,
+        "imageProd": f"{image_base_url}/{_relative_path(security_level, 'prod', album, filename)}",
+        "imageWeb": f"{image_base_url}/{_relative_path(security_level, 'web', album, filename)}",
+        "imageThumb": f"{image_base_url}/{_relative_path(security_level, 'thumb', album, filename)}",
+    }
+    finalize_resp = requests.post(
+        f"{backend_url}/photos/{photo_id}/move/finalize",
+        json=finalize_payload,
+        headers=auth_headers,
+        timeout=10,
+    )
+    if finalize_resp.status_code not in (200, 201):
+        # Roll back the file moves so disk and DB stay consistent.
+        for new_abs, old_abs in moved:
+            try:
+                os.replace(new_abs, old_abs)
+            except OSError:
+                pass
+    return _forward_backend_json(finalize_resp)

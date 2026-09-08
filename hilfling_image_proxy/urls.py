@@ -20,6 +20,7 @@ from .shared import views as shared_views
 
 urlpatterns = [
     path("api/photos/upload", shared_views.photo_upload_view, name="photo-upload"),
+    path("api/photos/<str:photo_id>/move", shared_views.photo_move_view, name="photo-move"),
     path("api/photos/<str:photo_id>", shared_views.photo_delete_view, name="photo-delete"),
 
     #image hosting

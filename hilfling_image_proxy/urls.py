@@ -17,8 +17,10 @@ Including another URLconf
 
 from django.urls import path
 from .shared import views as shared_views
+from .shared.internal_images import internal_image_view
 
 urlpatterns = [
+    path("internal/images/<uuid:image_id>", internal_image_view, name="internal-image"),
     path("api/photos/upload", shared_views.photo_upload_view, name="photo-upload"),
     path("api/photos/<str:photo_id>", shared_views.photo_delete_view, name="photo-delete"),
 

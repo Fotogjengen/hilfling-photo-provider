@@ -80,6 +80,8 @@ STATIC_URL = 'static/'
 PROXY_TARGET_URL = env("PROXY_TARGET_URL")
 IMAGE_STORAGE_PATH = env("IMAGE_STORAGE_PATH", default="media")
 IMAGE_BASE_URL = env("IMAGE_BASE_URL", default="/media")
+INTERNAL_IMAGE_MAX_BYTES = env.int("INTERNAL_IMAGE_MAX_BYTES", default=10 * 1024 * 1024)
+INTERNAL_IMAGE_MAX_PIXELS = env.int("INTERNAL_IMAGE_MAX_PIXELS", default=25_000_000)
 
 # Backend JWKS endpoint
 JWKS_URL = env("JWKS_URL", default=f"{PROXY_TARGET_URL}/.well-known/jwks.json")

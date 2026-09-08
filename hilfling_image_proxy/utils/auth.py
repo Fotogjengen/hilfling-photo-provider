@@ -31,12 +31,39 @@ class InvalidToken(Exception):
     """Raised when a token is present but fails verification."""
 
 
+def verify_storage_token(request, image_id, operation):
+    """Only backend-issued, image-specific capabilities can mutate internal files."""
+    authorization = request.headers.get("Authorization", "")
+    if not authorization.startswith("Bearer "):
+        raise InvalidToken()
+    token = authorization[7:]
+    try:
+        signing_key = _jwks_client.get_signing_key_from_jwt(token)
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience="hilfling-image-provider",
+            issuer="hilfling-backend",
+            options={"require": ["exp", "iat", "sub", "aud", "iss", "operation", "securityLevel"]},
+        )
+    except (InvalidTokenError, PyJWKClientError) as error:
+        raise InvalidToken() from error
+    if (
+        claims["sub"] != str(image_id)
+        or claims["operation"] != operation
+        or claims["securityLevel"] not in {"ALLE", "FG", "HUSFOLK"}
+    ):
+        raise InvalidToken()
+    return claims
+
+
 def get_security_level(request) -> str:
     """Return the verified securityLevel, or "ALLE" when no token is present.
 
     Raises InvalidToken if a token is present but cannot be verified.
     """
-    token = request.COOKIES.get("fgToken")
+    token = request.COOKIES.get("fgToken") or request.headers.get("X-hilfling-token")
     if not token:
         return "ALLE"
 

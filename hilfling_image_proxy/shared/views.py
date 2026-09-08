@@ -245,7 +245,15 @@ def serve_image_view(request: HttpRequest, path: str):
     if not abs_path.is_file():
         return JsonResponse({"error": "Not found"}, status=404)
 
-    return FileResponse(abs_path.open("rb"))
+    response = FileResponse(
+        abs_path.open("rb"),
+        as_attachment=request.GET.get("download") == "1",
+        filename=abs_path.name,
+    )
+    response["Cache-Control"] = "private, no-cache"
+    response["Vary"] = "Cookie, X-hilfling-token"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 def _exif_text(tags, key):

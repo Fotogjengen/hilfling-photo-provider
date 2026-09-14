@@ -1,4 +1,4 @@
-Django==6.0.4
+Django==5.2.17
 ExifRead==3.5.1
 django-environ==0.13.0
 Pillow==12.2.0

@@ -17,10 +17,8 @@ import environ
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-print(BASE_DIR)
-
 env = environ.Env()
-environ.Env.read_env(BASE_DIR / ".env")  # reads your .env file
+environ.Env.read_env(str(BASE_DIR / ".env"))  # reads your .env file
 
 
 # Quick-start development settings - unsuitable for production

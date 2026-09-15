@@ -25,7 +25,7 @@ from pathlib import Path
 import environ
 
 env = environ.Env()
-environ.Env.read_env(Path(__file__).resolve().parent / ".env")
+environ.Env.read_env(str(Path(__file__).resolve().parent / ".env"))
 
 if __name__ == "__main__":
     from django.core.management import execute_from_command_line

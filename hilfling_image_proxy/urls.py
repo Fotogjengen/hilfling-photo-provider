@@ -22,6 +22,7 @@ urlpatterns = [
     path("api/photos/upload", shared_views.photo_upload_view, name="photo-upload"),
     path("api/photos/<str:photo_id>/move", shared_views.photo_move_view, name="photo-move"),
     path("api/photos/<str:photo_id>", shared_views.photo_delete_view, name="photo-delete"),
+    path("api/user-uploads/upload", shared_views.user_upload_view, name="user-upload"),
 
     #image hosting
     path("media/metadata/<path:path>", shared_views.photo_metadata_view, name="photo-metadata"),

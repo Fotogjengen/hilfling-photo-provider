@@ -56,3 +56,19 @@ def can_access(request, required_level: str) -> bool:
     """
     user_level = get_security_level(request)
     return required_level.upper() in _ALLOWED_BY_LEVEL.get(user_level, {"ALLE"})
+
+
+def can_access_prod(request, required_level: str) -> bool:
+    """True if the request is allowed to view a prod-quality file.
+
+    Prod files are members-only: an FG or HUSFOLK token is always required,
+    so anonymous/ALLE users are denied even for photos whose security level
+    is ALLE. The photo's own security level still applies on top of it.
+    Metadata requests are exempt from this and keep using can_access.
+
+    Raises InvalidToken if a token is present but invalid.
+    """
+    user_level = get_security_level(request)
+    if user_level not in ("FG", "HUSFOLK"):
+        return False
+    return required_level.upper() in _ALLOWED_BY_LEVEL.get(user_level, {"ALLE"})

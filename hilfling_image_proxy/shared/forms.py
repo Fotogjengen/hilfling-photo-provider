@@ -6,6 +6,12 @@ SECURITY_LEVEL_CHOICES = [
     ("HUSFOLK", "Husfolk"),
 ]
 
+# User content is visible to everyone or members only, never husfolk-only
+USER_UPLOAD_SECURITY_LEVEL_CHOICES = [
+    ("ALLE", "Alle"),
+    ("FG", "FG"),
+]
+
 
 class PhotoUploadForm(forms.Form):
     motive_id = forms.UUIDField(required=True)
@@ -15,3 +21,8 @@ class PhotoUploadForm(forms.Form):
     analog = forms.BooleanField(required=False)
     media = forms.ImageField(required=True)
     security_level = forms.ChoiceField(required=True, choices=SECURITY_LEVEL_CHOICES)
+
+
+class UserUploadForm(forms.Form):
+    media = forms.ImageField(required=True)
+    security_level = forms.ChoiceField(required=True, choices=USER_UPLOAD_SECURITY_LEVEL_CHOICES)

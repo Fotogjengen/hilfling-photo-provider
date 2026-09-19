@@ -3,6 +3,7 @@ import json
 import os
 import re
 import unicodedata
+import uuid
 from pathlib import Path
 
 import exifread
@@ -13,9 +14,9 @@ from django.http import FileResponse, HttpRequest, JsonResponse
 from django.utils._os import safe_join
 from PIL import ExifTags, Image, ImageOps
 
-from hilfling_image_proxy.utils.auth import InvalidToken, can_access
+from hilfling_image_proxy.utils.auth import InvalidToken, can_access, can_access_prod
 
-from .forms import PhotoUploadForm
+from .forms import PhotoUploadForm, UserUploadForm
 
 
 def _slugify(name: str) -> str:
@@ -31,6 +32,31 @@ def _build_filename(album: str, page_number: int, image_number: int, ext: str) -
 
 def _relative_path(security_level: str, quality: str, album: str, filename: str) -> str:
     return f"{security_level.lower()}/{quality}/{_slugify(album).upper()}/{filename}"
+
+
+def _required_security_level(path: str) -> str:
+    """Return the security level gating a stored image path.
+
+    Photos live under <security_level>/<quality>/<ALBUM>/<file>, so the level is
+    the first path segment. User uploads live under
+    user-content/<security_level>/<file>, so the level is the second segment.
+    """
+    segments = path.strip("/").split("/")
+    if segments[0].lower() == "user-content":
+        return segments[1].upper() if len(segments) > 1 else ""
+    return segments[0].upper()
+
+
+def _is_prod_path(path: str) -> bool:
+    """True when the path points at a prod-quality photo file.
+
+    Photos live under <security_level>/<quality>/<ALBUM>/<file>; user uploads
+    under user-content/<security_level>/<file> have no quality segment.
+    """
+    segments = path.strip("/").split("/")
+    if segments[0].lower() == "user-content":
+        return False
+    return len(segments) > 1 and segments[1].lower() == "prod"
 
 
 def _save_web(image_data: bytes, dest: Path, max_size: int = 1000, quality: int = 100) -> None:
@@ -170,6 +196,79 @@ def photo_upload_view(request: HttpRequest):
     )
 
 
+def user_upload_view(request: HttpRequest):
+    """Accept a user content upload, store it, and register it in the backend.
+
+    The file is stored under user-content/<security_level>/<uuid>.<ext> and the
+    backend is updated with the resulting link so the upload is tied to the
+    uploading user. User content is gated by the uploader's permission (FG
+    membership) and its security level can only be ALLE or FG, never HUSFOLK.
+    """
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+
+    # Uploading user content requires FG membership; the backend re-checks this
+    # when registering the upload.
+    try:
+        allowed = can_access(request, "FG")
+    except InvalidToken:
+        return JsonResponse({"error": "Invalid token"}, status=401)
+    if not allowed:
+        return JsonResponse({"error": "Forbidden"}, status=403)
+
+    form = UserUploadForm(request.POST, request.FILES)
+    if not form.is_valid():
+        return JsonResponse(
+            {"error": "Invalid parameters", "field_errors": form.errors},
+            status=400,
+        )
+
+    data = form.cleaned_data
+    image_file = data["media"]
+    security_level = data["security_level"]
+
+    ext = image_file.name.rsplit(".", 1)[-1].lower() if "." in image_file.name else "jpg"
+    ext = re.sub(r"[^a-z0-9]", "", ext)[:8] or "jpg"
+    rel_path = f"user-content/{security_level.lower()}/{uuid.uuid4()}.{ext}"
+
+    storage_root = Path(settings.IMAGE_STORAGE_PATH)
+    abs_path = storage_root / rel_path
+    abs_path.parent.mkdir(parents=True, exist_ok=True)
+    abs_path.write_bytes(image_file.read())
+
+    image_base_url = settings.IMAGE_BASE_URL.rstrip("/")
+    link = f"{image_base_url}/{rel_path}"
+
+    # Register the upload in the backend so it is tied to the uploading user.
+    backend_url = settings.PROXY_TARGET_URL
+    auth_headers = {}
+    # Forward the JWT from the cookie to the backend as a header
+    token = request.COOKIES.get("fgToken")
+    if token:
+        auth_headers["X-hilfling-token"] = token
+
+    register_resp = requests.post(
+        f"{backend_url}/user-uploads",
+        json={
+            "link": link,
+            "securityLevel": {"securityLevelType": security_level},
+        },
+        headers=auth_headers,
+        timeout=10,
+    )
+
+    if register_resp.status_code not in (200, 201):
+        # Roll back so disk and DB stay consistent.
+        abs_path.unlink(missing_ok=True)
+        try:
+            body = register_resp.json()
+        except Exception:
+            body = {"error": register_resp.text}
+        return JsonResponse(body, status=register_resp.status_code, safe=False)
+
+    return JsonResponse({"ok": True, "link": link, "userUpload": register_resp.json()}, status=201)
+
+
 def photo_delete_view(request: HttpRequest, photo_id: str):
     backend_url = settings.PROXY_TARGET_URL
     auth_headers = {}
@@ -223,9 +322,15 @@ def photo_delete_view(request: HttpRequest, photo_id: str):
 def serve_image_view(request: HttpRequest, path: str):
     """Serve a stored image, gated by the requester's token security level.
 
-    Images live under <storage>/<security_level>/<quality>/<ALBUM>/<file>, so the
-    first path segment is the security level. Public images (ALLE) are served to
-    anyone; FG/HUSFOLK images require a token whose securityLevel permits them.
+    Images live under <storage>/<security_level>/<quality>/<ALBUM>/<file>, and
+    user uploads under <storage>/user-content/<security_level>/<file>, so the
+    security level is derived from the path (see _required_security_level).
+    Public images (ALLE) are served to anyone; FG/HUSFOLK images require a token
+    whose securityLevel permits them. Full-resolution prod files are
+    members-only on top of that: they always require an FG or HUSFOLK token,
+    even for photos whose security level is ALLE. Metadata is exempt from the
+    prod gate and only follows the photo's security level
+    (see photo_metadata_view).
     """
     if request.method not in ("GET", "HEAD"):
         return JsonResponse({"error": "Method not allowed"}, status=405)
@@ -236,9 +341,12 @@ def serve_image_view(request: HttpRequest, path: str):
     except (ValueError, SuspiciousFileOperation):
         return JsonResponse({"error": "Not found"}, status=404)
 
-    required_level = path.strip("/").split("/", 1)[0].upper()
+    required_level = _required_security_level(path)
     try:
-        allowed = can_access(request, required_level)
+        if _is_prod_path(path):
+            allowed = can_access_prod(request, required_level)
+        else:
+            allowed = can_access(request, required_level)
     except InvalidToken:
         return JsonResponse({"error": "Invalid token"}, status=401)
     if not allowed:
@@ -261,7 +369,13 @@ def _exif_number(tags, key):
 
 
 def photo_metadata_view(request: HttpRequest, path: str):
-    """Return EXIF metadata for a stored image, gated like serve_image_view."""
+    """Return EXIF metadata for a stored image.
+
+    Gated by the image's security level only: unlike serve_image_view, the
+    members-only gate on prod files does not apply, so anyone who may view a
+    photo (including unauthenticated users for ALLE photos) can always read
+    the metadata of its prod image.
+    """
     if request.method != "GET":
         return JsonResponse({"error": "Method not allowed"}, status=405)
 
@@ -271,9 +385,8 @@ def photo_metadata_view(request: HttpRequest, path: str):
     except (ValueError, SuspiciousFileOperation):
         return JsonResponse({"error": "Not found"}, status=404)
 
-    required_level = path.strip("/").split("/", 1)[0].upper()
     try:
-        allowed = can_access(request, required_level)
+        allowed = can_access(request, _required_security_level(path))
     except InvalidToken:
         return JsonResponse({"error": "Invalid token"}, status=401)
     if not allowed:

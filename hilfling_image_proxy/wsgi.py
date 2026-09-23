@@ -11,6 +11,6 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hilfling_image_proxy.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hilfling_image_proxy.settings.prod')
 
 application = get_wsgi_application()

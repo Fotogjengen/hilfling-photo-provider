@@ -7,7 +7,7 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "hilfling_image_proxy.settings.d
 
 def main():
     """Run administrative tasks."""
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hilfling_image_proxy.settings')
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "hilfling_image_proxy.settings.dev")
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
@@ -19,17 +19,5 @@ def main():
     execute_from_command_line(sys.argv)
 
 
-import os
-import sys
-from pathlib import Path
-import environ
-
-env = environ.Env()
-environ.Env.read_env(str(Path(__file__).resolve().parent / ".env"))
-
 if __name__ == "__main__":
-    from django.core.management import execute_from_command_line
-    args = sys.argv
-    if len(args) == 2 and args[1] == "runserver":
-        args.append(f"127.0.0.1:{env('DJANGO_PORT', default='8888')}")
-    execute_from_command_line(args)
+    main()

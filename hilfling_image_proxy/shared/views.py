@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import os
 import re
 import unicodedata
@@ -17,6 +18,8 @@ from PIL import ExifTags, Image, ImageOps
 from hilfling_image_proxy.utils.auth import InvalidToken, can_access, can_access_prod
 
 from .forms import PhotoUploadForm, UserUploadForm
+
+logger = logging.getLogger(__name__)
 
 
 def _slugify(name: str) -> str:
@@ -88,12 +91,20 @@ def photo_upload_view(request: HttpRequest):
 
     form = PhotoUploadForm(request.POST, request.FILES)
     if not form.is_valid():
+        logger.warning("photo upload rejected: %s", form.errors.as_json())
         return JsonResponse(
             {"error": "Invalid parameters", "field_errors": form.errors},
             status=400,
         )
 
     data = form.cleaned_data
+    logger.info(
+        "photo upload: file=%s size=%s security_level=%s motive_id=%s",
+        data["media"].name,
+        data["media"].size,
+        data["security_level"],
+        data["motive_id"],
+    )
     backend_url = settings.PROXY_TARGET_URL
     auth_headers = {}
     # Forward the JWT from the cookie to the backend as a header
@@ -111,14 +122,23 @@ def photo_upload_view(request: HttpRequest):
     if data.get("gang_id"):
         reserve_payload["gangId"] = str(data["gang_id"])
 
-    reserve_resp = requests.post(
-        f"{backend_url}/photos/upload/reserve",
-        json=reserve_payload,
-        headers=auth_headers,
-        timeout=10,
-    )
+    try:
+        reserve_resp = requests.post(
+            f"{backend_url}/photos/upload/reserve",
+            json=reserve_payload,
+            headers=auth_headers,
+            timeout=10,
+        )
+    except requests.RequestException:
+        logger.exception("reserve request to backend failed")
+        return JsonResponse({"error": "Backend unavailable"}, status=502)
 
     if reserve_resp.status_code != 200:
+        logger.warning(
+            "reserve rejected: HTTP %s body=%s",
+            reserve_resp.status_code,
+            reserve_resp.text[:2000],
+        )
         try:
             body = reserve_resp.json()
         except Exception:
@@ -174,14 +194,25 @@ def photo_upload_view(request: HttpRequest):
     if data.get("gang_id"):
         finalize_payload["gangId"] = str(data["gang_id"])
 
-    finalize_resp = requests.post(
-        f"{backend_url}/photos/upload/finalize",
-        json=finalize_payload,
-        headers=auth_headers,
-        timeout=10,
-    )
+    try:
+        finalize_resp = requests.post(
+            f"{backend_url}/photos/upload/finalize",
+            json=finalize_payload,
+            headers=auth_headers,
+            timeout=10,
+        )
+    except requests.RequestException:
+        logger.exception("finalize request to backend failed")
+        for path in (prod_abs, web_abs, thumb_abs):
+            path.unlink(missing_ok=True)
+        return JsonResponse({"error": "Backend unavailable"}, status=502)
 
     if finalize_resp.status_code not in (200, 201):
+        logger.warning(
+            "finalize rejected: HTTP %s body=%s",
+            finalize_resp.status_code,
+            finalize_resp.text[:2000],
+        )
         for path in (prod_abs, web_abs, thumb_abs):
             path.unlink(missing_ok=True)
         try:
@@ -190,6 +221,7 @@ def photo_upload_view(request: HttpRequest):
             body = {"error": finalize_resp.text}
         return JsonResponse(body, status=finalize_resp.status_code, safe=False)
 
+    logger.info("photo upload stored: prod=%s web=%s thumb=%s", prod_rel, web_rel, thumb_rel)
     return JsonResponse(
         {"ok": True, "prod": prod_url, "web": web_url, "thumb": thumb_url},
         status=201,
@@ -218,12 +250,19 @@ def user_upload_view(request: HttpRequest):
 
     form = UserUploadForm(request.POST, request.FILES)
     if not form.is_valid():
+        logger.warning("user upload rejected: %s", form.errors.as_json())
         return JsonResponse(
             {"error": "Invalid parameters", "field_errors": form.errors},
             status=400,
         )
 
     data = form.cleaned_data
+    logger.info(
+        "user upload: file=%s size=%s security_level=%s",
+        data["media"].name,
+        data["media"].size,
+        data["security_level"],
+    )
     image_file = data["media"]
     security_level = data["security_level"]
 
@@ -247,17 +286,27 @@ def user_upload_view(request: HttpRequest):
     if token:
         auth_headers["X-hilfling-token"] = token
 
-    register_resp = requests.post(
-        f"{backend_url}/user-uploads",
-        json={
-            "link": link,
-            "securityLevel": {"securityLevelType": security_level},
-        },
-        headers=auth_headers,
-        timeout=10,
-    )
+    try:
+        register_resp = requests.post(
+            f"{backend_url}/user-uploads",
+            json={
+                "link": link,
+                "securityLevel": {"securityLevelType": security_level},
+            },
+            headers=auth_headers,
+            timeout=10,
+        )
+    except requests.RequestException:
+        logger.exception("register request to backend failed")
+        abs_path.unlink(missing_ok=True)
+        return JsonResponse({"error": "Backend unavailable"}, status=502)
 
     if register_resp.status_code not in (200, 201):
+        logger.warning(
+            "user upload register rejected: HTTP %s body=%s",
+            register_resp.status_code,
+            register_resp.text[:2000],
+        )
         # Roll back so disk and DB stay consistent.
         abs_path.unlink(missing_ok=True)
         try:
@@ -266,6 +315,7 @@ def user_upload_view(request: HttpRequest):
             body = {"error": register_resp.text}
         return JsonResponse(body, status=register_resp.status_code, safe=False)
 
+    logger.info("user upload stored: %s", rel_path)
     return JsonResponse({"ok": True, "link": link, "userUpload": register_resp.json()}, status=201)
 
 

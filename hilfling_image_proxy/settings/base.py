@@ -81,3 +81,38 @@ IMAGE_BASE_URL = env("IMAGE_BASE_URL", default="/media")
 
 # Backend JWKS endpoint
 JWKS_URL = env("JWKS_URL", default=f"{PROXY_TARGET_URL}/.well-known/jwks.json")
+
+# Logging
+# Everything goes to stderr, which uWSGI (or runserver) captures in its log.
+LOG_LEVEL = env("LOG_LEVEL", default="INFO")
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "{asctime} {levelname} {name} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "standard",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": LOG_LEVEL,
+    },
+    "loggers": {
+        # Unhandled exceptions (500) and SuspiciousOperation (400) currently
+        # vanish when DEBUG=False, because Django's default config only mails
+        # admins. Log them explicitly.
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}

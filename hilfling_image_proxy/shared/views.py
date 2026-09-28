@@ -86,6 +86,7 @@ def _save_thumb(image_data: bytes, dest: Path, size: int = 300, quality: int = 5
 
 
 def photo_upload_view(request: HttpRequest):
+    logger.info("Upload request recieved")
     if request.method != "POST":
         return JsonResponse({"error": "Method not allowed"}, status=405)
 

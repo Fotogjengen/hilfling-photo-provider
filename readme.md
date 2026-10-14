@@ -24,6 +24,6 @@ Lag venv manuelt med Python 3.11 (`python3.11 -m venv .venv`) og installer med `
 
 ## Kjøring
 
-Kjør prosjektet i dev med `uv run python manage.py runserver 127.0.0.1:8888 --settings=hilfling_image_proxy.settings.dev`
+Kjør prosjektet i dev med `uv run python manage.py runserver 127.0.0.1:8888 --settings=hilfling_photo_provider.settings.dev`
 
-Eller aktiver miljøet manuelt med `source .venv/bin/activate` og kjør `python3 manage.py runserver 127.0.0.1:8888 --settings=hilfling_image_proxy.settings.dev`
+Eller aktiver miljøet manuelt med `source .venv/bin/activate` og kjør `python3 manage.py runserver 127.0.0.1:8888 --settings=hilfling_photo_provider.settings.dev`

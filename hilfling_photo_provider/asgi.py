@@ -1,5 +1,5 @@
 """
-ASGI config for hilfling_image_proxy project.
+ASGI config for hilfling_photo_provider project.
 
 It exposes the ASGI callable as a module-level variable named ``application``.
 
@@ -11,6 +11,6 @@ import os
 
 from django.core.asgi import get_asgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hilfling_image_proxy.settings.prod')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hilfling_photo_provider.settings.prod')
 
 application = get_asgi_application()

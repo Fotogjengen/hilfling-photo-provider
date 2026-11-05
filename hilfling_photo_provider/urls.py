@@ -9,6 +9,7 @@ urlpatterns = [
     # backend-only, authorised by a service token
     path("api/provider-internal/photos/relocate", views.photo_relocate_view, name="photo-relocate"),
     path("api/provider-internal/photos/delete", views.photo_delete_view, name="photo-delete"),
+    path("api/provider-internal/auth/security-level", views.security_level_view, name="security-level"),
 
     # image hosting
     path("media/metadata/<path:path>", views.photo_metadata_view, name="photo-metadata"),

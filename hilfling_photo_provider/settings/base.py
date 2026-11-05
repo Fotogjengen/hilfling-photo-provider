@@ -77,6 +77,9 @@ IMAGE_BASE_URL = env("IMAGE_BASE_URL", default="/media") or "/media"
 # Backend JWKS endpoint
 JWKS_URL = env("JWKS_URL", default=f"{PROXY_TARGET_URL}/.well-known/jwks.json")
 
+# Realm members ({realm: [usernames]}) for the itkacl mock, used only when itkacl can't be imported
+ITKACL_MOCK = {}
+
 # Logging
 # Everything goes to stderr, which uWSGI (or runserver) captures in its log.
 LOG_LEVEL = env("LOG_LEVEL", default="INFO")

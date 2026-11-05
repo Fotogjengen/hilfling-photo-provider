@@ -28,7 +28,7 @@ MAX_EXTENSION_LENGTH = 8
 
 _SECURITY_DIRS = [level.lower() for level in SecurityLevel.values]
 _STORED_PATH = re.compile(
-    rf"^({'|'.join(_SECURITY_DIRS)})/({'|'.join(QUALITIES)})/[A-Za-z0-9_-]+/[A-Za-z0-9_-]+\.[A-Za-z0-9]+$"
+    rf"^({'|'.join(_SECURITY_DIRS)})/({'|'.join(QUALITIES)})/[A-Za-z0-9æøåÆØÅ_-]+/[A-Za-z0-9æøåÆØÅ_-]+\.[A-Za-z0-9]+$"
 )
 
 
@@ -37,9 +37,8 @@ class RelocationConflict(Exception):
 
 
 def slugify(name: str) -> str:
-    """Convert a string to a filesystem/URL-safe slug (ASCII, no spaces)."""
-    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
-    return re.sub(r"[^a-zA-Z0-9_-]+", "_", ascii_name).strip("_")
+    """Convert a string to a filesystem-safe slug (ASCII plus æøå, no spaces). Album names like DIGFØ keep their Ø."""
+    return re.sub(r"[^a-zA-Z0-9æøåÆØÅ_-]+", "_", unicodedata.normalize("NFC", name)).strip("_")
 
 
 def file_extension(filename: str) -> str:

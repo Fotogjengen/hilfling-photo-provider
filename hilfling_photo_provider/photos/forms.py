@@ -19,3 +19,7 @@ class UserUploadForm(forms.Form):
         required=True,
         choices=[(level.value, level.label) for level in USER_UPLOAD_LEVELS],
     )
+
+
+class SecurityLevelLookupForm(forms.Form):
+    username = forms.RegexField(required=True, regex=r"^[a-z0-9._-]+$", max_length=64)

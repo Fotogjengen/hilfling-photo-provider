@@ -10,9 +10,11 @@ from pathlib import Path
 from django.core.exceptions import SuspiciousFileOperation
 from django.http import JsonResponse
 
+from hilfling_photo_provider.utils.itk_auth import security_level_for
 from hilfling_photo_provider.utils.security_level import SecurityLevel
 
-from ..http import ApiError, api_view, service_scope
+from ..forms import SecurityLevelLookupForm
+from ..http import ApiError, api_view, service_scope, validated_data
 from ..storage import (
     QUALITIES,
     RelocationConflict,
@@ -127,3 +129,27 @@ def photo_delete_view(request):
         raise ApiError(f"Invalid delete request: {exc}", 400) from exc
 
     return JsonResponse({"deleted": len(rels)})
+
+
+@api_view("POST")
+@service_scope("security-level")
+def security_level_view(request):
+    """Look up a user's security level in ITK's ACLs. Body: {"username"}.
+
+    Responds with {"username", "securityLevel"}, where securityLevel is FG, HUSFOLK or ALLE.
+    """
+    try:
+        body = json.loads(request.body)
+    except ValueError as exc:
+        raise ApiError(f"Invalid security level request: {exc}", 400) from exc
+    if not isinstance(body, dict):
+        raise ApiError("Invalid security level request: expected a JSON object", 400)
+    username = validated_data(SecurityLevelLookupForm(body), "security level lookup")["username"]
+
+    try:
+        level = security_level_for(username)
+    except Exception as exc:
+        logger.exception("itkacl lookup failed for %s", username)
+        raise ApiError("ACL lookup failed", 503) from exc
+
+    return JsonResponse({"username": username, "securityLevel": level})

@@ -9,3 +9,9 @@ IMAGE_STORAGE_PATH = str(BASE_DIR / "media")
 IMAGE_BASE_URL = "/media"
 MEDIA_ROOT = BASE_DIR / "media"
 MEDIA_URL = "/media/"
+
+# itkacl isn't installed outside ITK. FG members are also in /web/alle, like in prod
+ITKACL_MOCK = {
+    "/web/fg": ["nyfg"],
+    "/web/alle": ["nyfg", "nyhusfolk"],
+}
